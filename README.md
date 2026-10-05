@@ -5,6 +5,7 @@ A Claude Code plugin that shows what a session does: a band above the prompt and
 - **Band, left:** what Claude did last or does now, what waits on you, and the next step of a PR stack. Below them: the 5-hour and 7-day usage windows, the context fill and the prompt cache share.
 - **Band, right column:** the plan's progress, the Linear issue, the PR or the number of PRs in a stack, and the debugging Chrome of the session.
 - **Pane:** the plan as a graph, your prompts in this session, and the PR stack with its CI and review state.
+- **Questions:** when Claude's answer still ends with a plain-text ask ("reply go", "Should I…?", "Reply A or B"), Monitor opens the question dialog and sends your pick as your reply. While a question or a permission prompt waits, the band's Your move line names it.
 
 Monitor is off until you turn it on.
 

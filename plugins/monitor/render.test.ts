@@ -943,3 +943,92 @@ test('with alwaysOn, a session opens the Monitor pane as it starts, before any p
   await $.session.start({ cwd: '/work/app', surface: null, isInteractive: false })
   expect(opened).toEqual(['monitor'])
 })
+
+test('an answer that closes on go or yes/no opens the question dialog, and Your move names what waits on you', ON, async ($, on) => {
+  const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} }
+  const asked: { question: string; options: string[] }[] = []
+  const submitted: { text: string; asUser: boolean }[] = []
+  let draft = ''
+  // The dialog stays open until the test picks, as a person would.
+  let pickNow: (label: string) => void = () => undefined
+  const clock = mock.clock(on, { now: NOW })
+  on('fs.exists', () => NO_FILE)
+  on('session.cwd', () => ({ value: '/elsewhere' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('agent.list', () => ({ value: [] }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
+  on('tool.check', () => ({ decision: 'ask' }))
+  on('ui.render', () => ({ type: 'Text', children: ['the engine draws its own band'] }))
+  on('tool.call', { tool: 'AskUserQuestion' }, async (_, e) => {
+    const first = e.questions[0]
+    asked.push({ question: first?.question ?? '', options: (first?.options ?? []).map(option => option.label) })
+    const label = await new Promise<string>(resolve => {
+      pickNow = resolve
+    })
+
+    return { result: { questions: e.questions, answers: { [first?.question ?? '']: label } } }
+  })
+  on('prompt.submit', (_, e) => {
+    submitted.push({ text: e.text, asUser: e.origin.kind === 'plugin' && e.origin.asUser === true })
+
+    return { text: e.text }
+  })
+  const complete = async (answer: string) => {
+    await $.turn.complete({ answer, reason: 'answer', durationMs: 1000, isAborted: false, turnId: answer })
+    await clock.settle()
+  }
+  const pick = async (label: string) => {
+    pickNow(label)
+    await clock.settle()
+  }
+  const yourMove = async () => {
+    const band = await $.ui.mount({ plugin: 'monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+    const line = (await band.find({ text: /^(Question for you|Waiting for your OK): / }))?.text
+    await band.unmount()
+
+    return line
+  }
+
+  await $.command.run({ command: 'monitor', args: '', ...COMMAND })
+  await complete('The branch is ready.\n\nShould I push it?')
+  expect(asked).toEqual([{ question: 'Should I push it?', options: ['yes', 'no'] }])
+  expect(await yourMove()).toBe('Question for you: Should I push it?')
+  await pick('yes')
+  expect(submitted).toEqual([{ text: 'yes', asUser: true }])
+  expect(await yourMove()).toBeUndefined()
+
+  // One named reply gets a way out that sends nothing; a lettered choice puts the recommended option first.
+  await complete('Next: reply **"go"** to start the migration.')
+  expect(asked.at(-1)).toEqual({ question: "What's your reply?", options: ['go', 'Not now'] })
+  await pick('Not now')
+  await complete('- **A:** skip check 3.\n- **B (recommended):** relaunch the test Chrome.\n\nReply **A** or **B**.')
+  expect(asked.at(-1)?.options).toEqual(['B: relaunch the test Chrome', 'A: skip check 3'])
+  await pick('B: relaunch the test Chrome')
+  expect(submitted.map(sent => sent.text)).toEqual(['yes', 'B: relaunch the test Chrome'])
+
+  // Nothing over an answer that asks nothing, or over a draft the person is typing.
+  await complete('The tests pass and the PR is open.')
+  draft = 'actually, wait'
+  await complete('Shall I merge it?')
+  expect(asked).toHaveLength(3)
+
+  await $.tool.check({ tool: 'Bash', input: { command: 'git push', description: 'Push the branch' }, tool_use_id: 'use-1' })
+  expect(await yourMove()).toBe('Waiting for your OK: Push the branch')
+})
+
+test('with Monitor off, an answer that closes on yes/no opens no dialog', async ($, on) => {
+  const asked: string[] = []
+  const clock = mock.clock(on, { now: NOW })
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('prompt.read', () => ({ value: { text: '', cursor: 0 } }))
+  on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => {
+    asked.push(e.questions[0]?.question ?? '')
+
+    return { result: { questions: e.questions, answers: {} } }
+  })
+
+  await $.turn.complete({ answer: 'Should I push it?', reason: 'answer', durationMs: 1000, isAborted: false, turnId: 'off' })
+  await clock.settle()
+  expect(asked).toEqual([])
+})

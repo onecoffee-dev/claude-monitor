@@ -134,6 +134,8 @@ declare module 'claude-code' {
       usage: MonitorUsage | null
       cacheShare: number | null
       active: boolean
+      /** What Claude waits on the person for, as one Your move line; "" when nothing. */
+      waiting: string
     }
   }
 }

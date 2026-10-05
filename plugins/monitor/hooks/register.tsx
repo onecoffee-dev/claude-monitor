@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type { BandMark } from './band'
+import { askOf } from './asks'
 import {
   agentsMark,
   bandOf,
@@ -141,10 +142,13 @@ const prompts = atom({ plugin: 'monitor', key: 'prompts' } as const, [])
 const step = atom({ plugin: 'monitor', key: 'step' } as const, null)
 const summary = atom({ plugin: 'monitor', key: 'summary' } as const, null)
 const stack = atom({ plugin: 'monitor', key: 'stack' } as const, [])
-// The next-move mod's replies and permission wait, drawn in the Your move row; nothing without that mod.
-const NEXT_MOVE_REPLIES = { plugin: 'next-move', key: 'replies' } as const
-const NEXT_MOVE_WAITING = { plugin: 'next-move', key: 'waiting' } as const
-const REPLY_HINT_MAX = 28
+// What Claude waits on the person for, as one Your move line; "" when nothing.
+const waiting = atom({ plugin: 'monitor', key: 'waiting' } as const, '')
+const MAX_QUESTION = 120
+const NOT_NOW = 'Not now'
+const ASK_HEADER = 'Reply'
+// The closing question, plus the line an answer may put after it ("Next: …", "Separately: …").
+const CLOSING_PARAGRAPHS = 2
 const SECTION_IDS = ['plan', 'prompts', 'stack'] as const
 // What the person sent: the terminal's composer, the Remote Control bridge, or an SDK host such as the desktop app,
 // whose socket the engine cannot attest. A notification, a peer or a timer is no prompt of theirs.
@@ -154,9 +158,16 @@ const sections = atom({ plugin: 'monitor', key: 'sections' } as const, {})
 // Off until /monitor runs in the session, unless the alwaysOn setting is on.
 const active = atom({ plugin: 'monitor', key: 'active' } as const, false)
 
-// An option's text is a bare label ("A", "2"), so its hint says what it picks.
-const replyLabelOf = (reply: { text: string; hint: string }, index: number) =>
-  `${index + 1} ${reply.text}${/^[A-Z1-9]$/.test(reply.text) && reply.hint !== '' ? ` · ${reply.hint.slice(0, REPLY_HINT_MAX)}` : ''}`
+const fieldsOf = (value: unknown): Record<string, unknown> =>
+  typeof value === 'object' && value !== null ? Object.fromEntries(Object.entries(value)) : {}
+
+/** The first question an AskUserQuestion call asks, "" when it carries none. */
+const questionOf = (input: unknown) => {
+  const questions = fieldsOf(input).questions
+  const question = fieldsOf(Array.isArray(questions) ? questions[0] : undefined).question
+
+  return typeof question === 'string' ? question : ''
+}
 
 const COLORS: Record<MonitorStatus, string> = {
   completed: '#5cb97a',
@@ -835,6 +846,27 @@ const stepOf = (call: { tool: string }) => {
   return call.tool
 }
 
+/**
+ * Opens the question dialog for the reply `answer` closes on ("reply go", "Should I…?") and
+ * sends the pick as the person's reply. Nothing over a draft they are typing; nothing for
+ * "Not now", an empty "Other" or a dismissed dialog.
+ */
+const askFor = async ($: EngineInterface, answer: string) => {
+  const ask = askOf(answer, CLOSING_PARAGRAPHS)
+  if (ask === null || (await $.prompt.read()).text.trim() !== '') return
+
+  // A bare option label ("B", "2") says nothing in a dialog, so its hint rides along.
+  const labels = ask.replies.map(reply => (/^[A-Z1-9]$/.test(reply.text) && reply.hint !== '' ? `${reply.text}: ${reply.hint}` : reply.text))
+  await update($, waiting, () => `Question for you: ${ask.question.slice(0, MAX_QUESTION)}`)
+  const picked = await $.ui
+    .ask(ask.question, { options: labels.length === 1 ? [...labels, NOT_NOW] : labels, header: ASK_HEADER })
+    .catch(() => '')
+  await update($, waiting, () => '')
+  if (picked.trim() === '' || picked === NOT_NOW) return
+
+  await $.prompt.submit({ text: picked, asUser: true })
+}
+
 const openAt = async ($: EngineInterface, target: 'start' | { key: string }) => {
   await $.ui.open(OPENING)
   await $.ui.scroll({ to: target, in: PANE, block: 'start' }).catch(() => undefined)
@@ -1165,7 +1197,23 @@ export const register: Register = (on, options) => {
     return spawned
   })
 
+  // The engine asks the person to allow a tool, or opens the question dialog (its permission step:
+  // the AskUserQuestion call itself runs only once they have picked). Your move says which.
+  on('tool.check', async ($, e, next) => {
+    const result = await next(e)
+    if (e.tool_use_id !== undefined && result.decision === 'ask' && (await isOn($))) {
+      const line =
+        e.tool === 'AskUserQuestion'
+          ? `Question for you: ${(questionOf(e.input) || 'Claude asks you a question').slice(0, MAX_QUESTION)}`
+          : `Waiting for your OK: ${stepOf({ ...fieldsOf(e.input), tool: e.tool })}`
+      await update($, waiting, () => line)
+    }
+
+    return result
+  })
+
   on('tool.call', async ($, e, next) => {
+    if ((await read($, waiting)) !== '') await update($, waiting, () => '')
     if (e.agentId === undefined) {
       const text = stepOf(e)
       turn.steps = [...turn.steps, text].slice(-MAX_STEPS)
@@ -1188,6 +1236,10 @@ export const register: Register = (on, options) => {
       const lastStep = turn.steps.at(-1)
       Object.assign(turn, { reply: e.answer, isWorking: false, isDue: true })
       await update($, step, () => null)
+      await update($, waiting, () => '')
+      // An answer that still closes on "reply go" or "Should I…?" in text becomes the question dialog,
+      // on a timer: the dialog waits on the person, and the reply it sends starts a turn of its own.
+      if (e.reason === 'answer' && (await isOn($))) $.clock.after(0, () => void askFor($, e.answer))
       // Until Sonnet answers, the last step stands in, so the band never goes blank.
       if (lastStep !== undefined) {
         const at = await $.clock.now()
@@ -1220,10 +1272,9 @@ export const register: Register = (on, options) => {
     const base = bandOf(await read($, graph), await read($, agents), await read($, chrome), info)
     const band = withLive(base, await read($, step), await read($, summary), e.props.isWorking)
     const chain = await read($, stack)
-    const replies = e.props.isWorking ? [] : ((await $.state.get(NEXT_MOVE_REPLIES).catch(() => undefined))?.value ?? [])
-    const waitingFor = (await $.state.get(NEXT_MOVE_WAITING).catch(() => undefined))?.value ?? ''
+    const waitingFor = await read($, waiting)
     const measuredUsage = await read($, usage)
-    const isQuiet = isEmpty(band) && chain.length === 0 && replies.length === 0 && waitingFor === '' && measuredUsage === null
+    const isQuiet = isEmpty(band) && chain.length === 0 && waitingFor === '' && measuredUsage === null
     if (isQuiet) return next(e)
     const now = await read($, minute)
 
@@ -1355,19 +1406,11 @@ export const register: Register = (on, options) => {
     const moveReason = waitingFor !== '' ? waitingFor : band.yourMove?.reason
     const moreMoves = waitingFor === '' ? (band.yourMove?.more ?? 0) : 0
     const yourMove =
-      (moveReason !== undefined || replies.length > 0) &&
+      moveReason !== undefined &&
       line(
         moveMark(),
-        moveReason !== undefined && <Text wrap="wrap">{clipText(moveReason, sentenceLimit)}</Text>,
+        <Text wrap="wrap">{clipText(moveReason, sentenceLimit)}</Text>,
         moreMoves > 0 && <Text dimColor>· +{moreMoves} more</Text>,
-        ...replies.map((reply, index) => (
-          <Button
-            key={`reply-${index + 1}`}
-            label={replyLabelOf(reply, index)}
-            hotkey={String(index + 1)}
-            onPress={() => void $.prompt.submit({ text: reply.text, asUser: true })}
-          />
-        )),
       )
 
     const stackNext = chain[0]
