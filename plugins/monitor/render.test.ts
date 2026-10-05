@@ -885,10 +885,17 @@ test('Monitor stays quiet until /monitor turns it on, and draws only the rows it
   on('fs.exists', () => NO_FILE)
   on('session.cwd', () => ({ value: '/work/app' }))
   on('clock.now', () => ({ value: NOW }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  const opened: string[] = []
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('ui.render', () => ({ type: 'Text', children: ['the engine draws the band'] }))
   on('tool.call', () => ({ result: 'no such tool', isError: true }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/work/app', surface: 'desktop', isInteractive: true })
   await $.session.measure({
     context: { tokens: 63_300, window: 1_000_000, percent: 6 },
     rateLimits: [{ kind: 'five_hour', percentUsed: 29 }],
@@ -899,6 +906,8 @@ test('Monitor stays quiet until /monitor turns it on, and draws only the rows it
   expect(await quiet.find({ text: /^5h$/ })).toBeUndefined()
   await quiet.unmount()
   expect(JSON.stringify(await savePlan($, PLAN))).not.toContain('Plan saved')
+  // Off, a session start opens nothing.
+  expect(opened).toEqual([])
 
   await $.command.run({ command: 'monitor', args: '', ...COMMAND })
   expect(JSON.stringify(await savePlan($, PLAN))).toContain('Plan saved')
@@ -909,4 +918,20 @@ test('Monitor stays quiet until /monitor turns it on, and draws only the rows it
   expect(await band.find({ text: /^No issue$/ })).toBeUndefined()
   expect(await band.find({ text: /^No Chrome$/ })).toBeUndefined()
   await band.unmount()
+})
+
+test('with alwaysOn, a session opens the Monitor pane as it starts, before any plan', ON, async ($, on) => {
+  const opened: string[] = []
+  on('fs.exists', () => NO_FILE)
+  on('session.cwd', () => ({ value: '/work/app' }))
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+
+  // The desktop app starts a session as the SDK does: no surface yet, and nobody at a REPL.
+  await $.session.start({ cwd: '/work/app', surface: null, isInteractive: false })
+  expect(opened).toEqual(['monitor'])
 })

@@ -1119,7 +1119,8 @@ export const register: Register = (on, options) => {
 
     if (settings.alwaysOn) {
       await activate($)
-      if ((await read($, plan)) !== null) void $.ui.open(OPENING)
+      // Not awaited: with no surface attached yet the pane waits, and the app seats it when one attaches.
+      void $.ui.open(OPENING)
     }
 
     return next(e)

@@ -1,6 +1,6 @@
 {
   "name": "monitor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A Monitor pane and band for the session: the plan as a graph (fed by its plan tool), your prompts, the PR stack, and the usage limits. Off until you run /monitor.",
   "author": {
     "name": "onecoffee-dev"
