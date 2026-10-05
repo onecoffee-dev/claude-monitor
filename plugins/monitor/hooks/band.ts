@@ -379,6 +379,44 @@ export const pillMark = (label: string, hue: string, icon: PillIcon, alt = label
   }
 }
 
+// A PR stack in merge order: one dot per PR in the hue of what it needs next, this session's ringed.
+const STRIP = { step: 11, dot: 3.4, ring: 5.6, edge: 6, most: 10 }
+
+export const stackStripMark = (rows: readonly { hue: string; isSession: boolean }[], alt: string): BandMark => {
+  const shown = rows.slice(0, STRIP.most)
+  const more = rows.length - shown.length
+  const last = STRIP.edge + Math.max(0, shown.length - 1) * STRIP.step
+  const moreText = more > 0 ? `+${more}` : ''
+  const width = Math.ceil(last + STRIP.edge + (more > 0 ? textWidth(moreText) * (11 / D.size) + 3 : 0))
+
+  return {
+    svg: wrap(
+      width,
+      `<path d="M${STRIP.edge} ${D.center}H${last}" class="line" stroke-width="1.2" style="--l:#a8a8a8;--d:#6b6b6b"/>` +
+        shown
+          .map((row, index) => {
+            const x = STRIP.edge + index * STRIP.step
+            const ring = row.isSession
+              ? `<circle cx="${x}" cy="${D.center}" r="${STRIP.ring}" fill="none" class="line" stroke-width="1.3" style="--l:#3a3a3a;--d:#e6e6e6"/>`
+              : ''
+
+            return `${ring}<circle cx="${x}" cy="${D.center}" r="${STRIP.dot}" fill="${row.hue}"/>`
+          })
+          .join('') +
+        (more > 0
+          ? `<text x="${last + STRIP.edge + 2}" y="${D.baseline - 0.5}" font-size="11" class="ink" style="--l:#6b6b6b;--d:#9a9a9a">${moreText}</text>`
+          : ''),
+    ),
+    width,
+    height: D.height,
+    alt,
+    glyphs: [
+      ...shown.map(row => ({ text: row.isSession ? '◉' : '●', color: row.hue })),
+      ...(more > 0 ? [{ text: moreText, isDim: true }] : []),
+    ],
+  }
+}
+
 export const pullRequestMark = (isLinked: boolean) =>
   iconMark(ICONS.pullRequest, isLinked ? HUE.done : HUE.idle, '⑂', isLinked ? 'Pull requests' : 'No pull request')
 

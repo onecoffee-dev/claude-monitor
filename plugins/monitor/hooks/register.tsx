@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentInfo, EngineInterface, PluginOptions, Register } from 'claude-code'
+import type { AgentInfo, EngineInterface, PluginOptions, Register, Timer } from 'claude-code'
 
 import type { BandMark, PillIcon } from './band'
 import { askOf } from './asks'
@@ -17,6 +17,7 @@ import {
   pillMark,
   progressMark,
   pullRequestMark,
+  stackStripMark,
   statusMark,
   windowMark,
   withLive,
@@ -48,8 +49,12 @@ const SLOT_CDP_PORT_BASE = 9340
 const MAX_TABS = 8
 const MAX_REMEMBERED_AGENTS = 10
 const POLL_MS = 2000
-const CHROME_EVERY_POLLS = 5
-const HEADER_EVERY_POLLS = 30
+const CHROME_EVERY_MS = 10_000
+const HEADER_EVERY_MS = 60_000
+// Once the timer has been quiet this long, the session's own activity refreshes in its place.
+const QUIET_MS = 10_000
+// A command that opens, changes or pushes a PR: the band reads the PR again right after it.
+const PR_CHANGE = /\bgh\s+(?:pr\s+(?:create|merge|ready|close|reopen|edit)|stack)\b|\bgit\s+push\b/
 const COMMAND_TIMEOUT_MS = 15_000
 const BAND_TITLE_MAX = 140
 const PROMPTS_KEY = 'prompts-section'
@@ -237,7 +242,10 @@ const escapeMarkdown = (text: string) => text.replace(/[\\`*_{}[\]()#+\-.!|<>~]/
 
 const spawnedModels = new Map<string, string>()
 
-let polls = 0
+// When each part last refreshed. Each part runs on its own time, claimed before it runs, so a refresh
+// that fails or overlaps another never stops or repeats one.
+let refreshedAt = { any: 0, chrome: 0, header: 0 }
+let ticker: Timer | undefined
 
 const duration = (from: string | number | undefined, to: number) => {
   if (from === undefined) return ''
@@ -837,17 +845,40 @@ const untilText = (resetsAt: string, now: number) => {
   return `${Math.floor(minutes / (24 * 60))}d${Math.floor(minutes / 60) % 24}h`
 }
 
-const refresh = async ($: EngineInterface) => {
+const refresh = async ($: EngineInterface, isForced = false) => {
   const exact = await $.clock.now()
+  refreshedAt.any = exact
   const now = Math.floor(exact / MINUTE_MS) * MINUTE_MS
   if ((await read($, minute)) !== now) await update($, minute, () => now)
 
-  await refreshPrompts($)
+  await refreshPrompts($).catch(() => undefined)
   await refreshAgents($, exact).catch(() => undefined)
-  if (polls % CHROME_EVERY_POLLS === 0) await refreshChrome($).catch(() => undefined)
-  if (polls % HEADER_EVERY_POLLS === 0) await refreshHeader($).catch(() => undefined)
-  polls += 1
+  if (isForced || exact - refreshedAt.chrome >= CHROME_EVERY_MS) {
+    refreshedAt.chrome = exact
+    await refreshChrome($).catch(() => undefined)
+  }
+  if (isForced || exact - refreshedAt.header >= HEADER_EVERY_MS) {
+    refreshedAt.header = exact
+    await refreshHeader($).catch(() => undefined)
+  }
   await summarizeIfDue($).catch(() => undefined)
+}
+
+const startTicker = ($: EngineInterface) => {
+  ticker?.cancel()
+  ticker = $.clock.every(POLL_MS, () => void refresh($))
+}
+
+// A refused period ends a clock.every interval for good, silently: once it has been quiet,
+// the session's activity starts a new one and refreshes now. True when it did.
+const keepFresh = async ($: EngineInterface) => {
+  const now = await $.clock.now()
+  if (now - refreshedAt.any < QUIET_MS || !(await isOn($))) return false
+  refreshedAt.any = now
+  startTicker($)
+  $.clock.after(0, () => void refresh($))
+
+  return true
 }
 
 const stepOf = (call: { tool: string }) => {
@@ -1148,11 +1179,12 @@ const activate = async ($: EngineInterface) => {
   await $.tool.register(PLAN_TOOL).catch((error: unknown) => {
     $.ui.toast(`monitor: the plan tool did not register (${error instanceof Error ? error.message : String(error)})`)
   })
-  $.clock.every(POLL_MS, () => void refresh($))
+  startTicker($)
 }
 
 export const register: Register = (on, options) => {
   settings = settingsOf(options)
+  refreshedAt = { any: 0, chrome: 0, header: 0 }
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -1186,8 +1218,7 @@ export const register: Register = (on, options) => {
     await activate($)
     if (pin !== undefined) return { text: await pinIssue($, pin) }
 
-    polls = 0
-    await refresh($)
+    await refresh($, true)
     const opened = await $.ui.open(OPENING)
     const source = (await read($, plan)) === null ? 'Monitor opened; no plan in this session yet' : 'Monitor opened'
 
@@ -1242,6 +1273,9 @@ export const register: Register = (on, options) => {
       await update($, step, () => text)
     }
     const result = await next(e)
+    const isPullRequestChange = 'command' in e && typeof e.command === 'string' && PR_CHANGE.test(e.command)
+    if (isPullRequestChange) refreshedAt.header = 0
+    if (!(await keepFresh($)) && isPullRequestChange && (await isOn($))) $.clock.after(0, () => void refresh($))
     // The tool has run or been refused, so its permission no longer waits on anyone.
     if (turn.permission !== '' && turn.permission === `Waiting for your OK: ${stepOf(e)}`) {
       turn.permission = ''
@@ -1365,10 +1399,16 @@ export const register: Register = (on, options) => {
         mark(pullRequestMark(chain.length > 0 || band.pullRequest !== null)),
         ...(chain.length > 0
           ? [
+              mark(
+                stackStripMark(
+                  chain.map(row => ({ hue: PILL_KINDS[blockerPillOf(row.blocker).kind].hue, isSession: row.isSession })),
+                  `PR stack in merge order: ${chain.map(row => `#${row.number} ${row.blocker}${row.isSession ? ' (this session)' : ''}`).join(', ')}`,
+                ),
+              ),
               // A link press, not a Button: the desktop pads a Button's label away from its icon.
               <Markdown
                 key="band-stack"
-                text={`[${chain.length} PRs](${chain[0]?.url ?? ''})`}
+                text={`[${chain.length}](${chain[0]?.url ?? ''})`}
                 pressableLinks={[chain[0]?.url ?? '']}
                 onLinkPress={() => void openSection($, 'stack', { key: STACK_KEY })}
               />,

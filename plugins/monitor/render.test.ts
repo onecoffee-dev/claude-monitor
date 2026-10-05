@@ -670,7 +670,10 @@ test('with a PR stack, the band names the next step and links to that PR', ON, a
   expect((await band.find({ type: 'Link', text: /^Approve and merge #101$/ }))?.props.href).toMatch(/\/pull\/101$/)
   expect(await band.find({ text: /1 thread needs you/ })).toBeDefined()
   // The band counts the stack's PRs; the PR stack card lists them.
-  expect((await band.find({ key: 'band-stack' }))?.text).toContain('[5 PRs](')
+  expect((await band.find({ key: 'band-stack' }))?.text).toContain('[5](')
+  // The PRs in merge order, one dot each, as one SVG whose alt reads them out.
+  const strip = (await band.findAll({ type: 'Svg' })).map(svg => String(svg.props.alt)).find(alt => alt.startsWith('PR stack in merge order'))
+  expect(strip).toBe('PR stack in merge order: #101 needs approval, #102 1 thread needs you, #103 1 unanswered thread (this session), #104 needs approval, #105 needs approval')
   opened.length = 0
   await band.press({ key: 'band-stack', link: { href: 'https://github.com/acme/app/pull/101' } })
   expect(opened).toEqual(['monitor'])
@@ -1065,4 +1068,52 @@ test('with Monitor off, an answer that closes on yes/no opens no dialog', async 
   await $.turn.complete({ answer: 'Should I push it?', reason: 'answer', durationMs: 1000, isAborted: false, turnId: 'off' })
   await clock.settle()
   expect(asked).toEqual([])
+})
+
+test('a PR shows in the band right after gh pr create, and the session keeps it fresh when the timer stops', ON, async ($, on) => {
+  const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} }
+  // A clock whose every period is refused: the interval ends at once, as a refused period ends one in the engine.
+  let now = NOW
+  on('clock.now', () => ({ value: now }))
+  on('clock.every', () => ({ deny: 'refused' }))
+  on('clock.after', () => ({ value: undefined }))
+  let isOpen = false
+  const run = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+  const pr = (number: number) => ({ number, title: `Step ${number}`, url: `https://github.com/acme/app/pull/${number}`, state: 'OPEN', isDraft: false, headRefName: 'feat/x', statusCheckRollup: [] })
+  on('fs.exists', () => NO_FILE)
+  on('session.cwd', () => ({ value: '/work/app' }))
+  on('env.get', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('agent.list', () => ({ value: [] }))
+  on('ui.render', () => ({ type: 'Text', children: ['the engine draws its own band'] }))
+  on('tool.call', () => ({ result: { stdout: '', stderr: '', interrupted: false }, isError: false }))
+  on('process.run', (_, e) => {
+    const [tool, noun, verb] = e.argv
+    if (tool === 'git') return run(0, 'feat/x\n')
+    if (tool === 'gh' && noun === 'pr' && verb === 'view') return isOpen ? run(0, JSON.stringify(pr(42))) : run(1, '')
+    if (tool === 'gh' && noun === 'pr' && verb === 'list') return run(0, '[]')
+    return run(1, '')
+  })
+  const shownPullRequest = async () => {
+    const band = await $.ui.mount({ plugin: 'monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+    const link = (await band.find({ type: 'Link', text: /^PR #\d+$/ }))?.text
+    await band.unmount()
+
+    return link
+  }
+
+  await $.command.run({ command: 'monitor', args: '', ...COMMAND })
+  expect(await shownPullRequest()).toBeUndefined()
+
+  // Opening the PR refreshes the band at once, not at the next minute.
+  isOpen = true
+  await $.tool.call({ tool: 'Bash', command: 'gh pr create --fill', description: 'Open the PR' })
+  expect(await shownPullRequest()).toBe('PR #42')
+
+  // With the timer gone, a minute later the session's next tool call refreshes in its place.
+  isOpen = false
+  now += 61_000
+  expect(await shownPullRequest()).toBe('PR #42')
+  await $.tool.call({ tool: 'Read', file_path: '/work/app/README.md' })
+  expect(await shownPullRequest()).toBeUndefined()
 })
