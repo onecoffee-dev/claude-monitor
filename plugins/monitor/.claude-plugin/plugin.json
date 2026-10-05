@@ -1,0 +1,38 @@
+{
+  "name": "monitor",
+  "version": "0.3.0",
+  "description": "A Monitor pane and band for the session: the plan as a graph (fed by its plan tool), your prompts, the PR stack, and the usage limits. Off until you run /monitor.",
+  "author": {
+    "name": "onecoffee-dev"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/onecoffee-dev/claude-monitor",
+  "repository": "https://github.com/onecoffee-dev/claude-monitor",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "alwaysOn": {
+      "type": "boolean",
+      "title": "Show Monitor in every session",
+      "description": "Off: Monitor stays hidden, with no band, no pane and no plan tool, until you run /monitor in a session. On: it starts with every session.",
+      "default": false
+    },
+    "issuePrefixes": {
+      "type": "string",
+      "title": "Linear team keys",
+      "description": "Comma-separated Linear team keys, for example ENG,OPS. Monitor finds these issue ids in the branch name or the PR title and shows the issue (set LINEAR_API_KEY). Empty: no Linear row.",
+      "default": ""
+    },
+    "chromeSlotsDirectory": {
+      "type": "string",
+      "title": "Chrome slots folder",
+      "description": "A folder under your home, for example .cache/myapp/browser-slots, holding one <profile>-slot-<n>.lock folder per debugging Chrome with an owner.json of its worktree and pid. Empty: no Chrome row.",
+      "default": ""
+    },
+    "fixCommand": {
+      "type": "string",
+      "title": "Fix command",
+      "description": "A slash command, without the slash, that a Fix button runs with the PR number, for example fix-pr. Empty: no Fix buttons.",
+      "default": ""
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "onecoffee",
+  "description": "Claude Code plugins by onecoffee-dev",
+  "owner": {
+    "name": "onecoffee-dev"
+  },
+  "plugins": [
+    {
+      "name": "monitor",
+      "description": "A band above the prompt and a pane beside the chat that show what the session does: the plan as a graph, your prompts, the PR stack, and the usage limits. Off until you run /monitor.",
+      "source": "./plugins/monitor",
+      "category": "productivity",
+      "homepage": "https://github.com/onecoffee-dev/claude-monitor"
+    }
+  ]
+}
