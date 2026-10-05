@@ -140,7 +140,7 @@ test('the first plan opens the Monitor, and a subagent or a malformed plan leave
   const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} }
   const band = await $.ui.mount({ plugin: 'monitor', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ text: /^The only task$/ })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: /^1\/1$/ })).toBeUndefined()
+  expect(await band.find({ key: 'band-progress' })).toBeUndefined()
   await band.unmount()
 })
 test('the band shows the Chrome slot this session holds, and its chip brings that Chrome forward', ON, async ($, on) => {
@@ -306,7 +306,7 @@ test('the band names the running task and the pane draws its plan, on the deskto
   const desktop = await $.ui.mount({ plugin: 'monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND })
   expect(await desktop.find({ text: /^DEMO-105 media-plan editor grid$/ })).toBeDefined()
   expect(await desktop.find({ text: /^· moving grid cells to tokens: 14 of 22 done$/ })).toBeDefined()
-  expect(await desktop.find({ type: 'Text', text: /^6\/11$/ })).toBeDefined()
+  expect((await desktop.find({ key: 'band-progress' }))?.text).toContain('[6/11](')
 
   expect(await pane.find({ text: /DEMO-101 color tokens/ })).toBeUndefined()
   await desktop.unmount()
@@ -823,7 +823,11 @@ test('the band carries the five-hour and seven-day windows, the context fill and
   on('fs.exists', () => NO_FILE)
   on('session.cwd', () => ({ value: '/work/app' }))
   on('clock.now', () => ({ value: NOW }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  const opened: string[] = []
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
   on('session.measure', (_, e) => ({ changed: e.changed }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
 
@@ -853,6 +857,10 @@ test('the band carries the five-hour and seven-day windows, the context fill and
   expect(texts.indexOf('5h')).toBeLessThan(texts.indexOf('7d'))
   expect(texts.indexOf('7d')).toBeLessThan(texts.indexOf('63.3K'))
   expect(texts.indexOf('63.3K')).toBeLessThan(texts.indexOf('61% cached'))
+  // The plan count is a link that opens the Plan card.
+  opened.length = 0
+  await band.press({ key: 'band-progress', link: { href: 'https://github.com/onecoffee-dev/claude-monitor' } })
+  expect(opened).toEqual(['monitor'])
   // The plan stacks in a column of its own, beside the lines and the usage row.
   const columns = (await band.findAll({ type: 'Box' })).filter(box => box.props.flexDirection === 'column').map(box => box.text)
   expect(columns.filter(text => text.includes('6/11') && !text.includes('5h')).length).toBe(1)

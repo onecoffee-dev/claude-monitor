@@ -52,6 +52,8 @@ const COMMAND_TIMEOUT_MS = 15_000
 const BAND_TITLE_MAX = 140
 const PROMPTS_KEY = 'prompts-section'
 const STACK_KEY = 'stack-section'
+// A Markdown link needs an https address; a press on the plan count opens the Plan card instead.
+const PLAN_LINK = 'https://github.com/onecoffee-dev/claude-monitor'
 const MAX_PROMPTS = 12
 const MAX_REMEMBERED_PROMPTS = 200
 const PROMPT_CHARACTERS = 90
@@ -1262,7 +1264,12 @@ export const register: Register = (on, options) => {
         ? [
             segment(
               mark(progressMark(band.progress)),
-              <Text>{`${band.progress.done}/${band.progress.done + band.progress.open + band.progress.failed}`}</Text>,
+              <Markdown
+                key="band-progress"
+                text={`[${band.progress.done}/${band.progress.done + band.progress.open + band.progress.failed}](${PLAN_LINK})`}
+                pressableLinks={[PLAN_LINK]}
+                onLinkPress={() => void openSection($, 'plan', 'start')}
+              />,
             ),
           ]
         : []),
