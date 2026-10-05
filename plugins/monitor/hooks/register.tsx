@@ -754,7 +754,7 @@ const refreshPrompts = async ($: EngineInterface) => {
 }
 
 // What the main thread did since the last prompt, for Sonnet to read.
-const turn = { prompt: '', steps: [] as string[], reply: '', isWorking: false, isDue: false, isAsking: false, askedAt: 0 }
+const turn = { prompt: '', steps: [] as string[], reply: '', isWorking: false, isDue: false, isAsking: false, askedAt: 0, permission: '' }
 
 const summaryPrompt = (isWorking: boolean) =>
   [
@@ -1197,19 +1197,26 @@ export const register: Register = (on, options) => {
     return spawned
   })
 
-  // The engine asks the person to allow a tool, or opens the question dialog (its permission step:
-  // the AskUserQuestion call itself runs only once they have picked). Your move says which.
+  // The question dialog opens at AskUserQuestion's permission step: the call itself runs once they have picked.
+  // Any other tool's "ask" goes to the mode's decider, a classifier in auto mode, so it waits on nobody yet.
   on('tool.check', async ($, e, next) => {
     const result = await next(e)
-    if (e.tool_use_id !== undefined && result.decision === 'ask' && (await isOn($))) {
-      const line =
-        e.tool === 'AskUserQuestion'
-          ? `Question for you: ${(questionOf(e.input) || 'Claude asks you a question').slice(0, MAX_QUESTION)}`
-          : `Waiting for your OK: ${stepOf({ ...fieldsOf(e.input), tool: e.tool })}`
-      await update($, waiting, () => line)
+    if (e.tool === 'AskUserQuestion' && e.tool_use_id !== undefined && result.decision === 'ask' && (await isOn($))) {
+      await update($, waiting, () => `Question for you: ${(questionOf(e.input) || 'Claude asks you a question').slice(0, MAX_QUESTION)}`)
     }
 
     return result
+  })
+
+  // A permission dialog is open in front of the person. A hook's read of `waiting` after its next() does
+  // not see this write, so the line is also kept here for the tool.call hook to take down.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    if (e.tool_name !== 'AskUserQuestion' && (await isOn($))) {
+      turn.permission = `Waiting for your OK: ${stepOf({ ...fieldsOf(e.tool_input), tool: e.tool_name })}`
+      await update($, waiting, () => turn.permission)
+    }
+
+    return next(e)
   })
 
   on('tool.call', async ($, e, next) => {
@@ -1221,7 +1228,14 @@ export const register: Register = (on, options) => {
       turn.isDue = true
       await update($, step, () => text)
     }
-    return next(e)
+    const result = await next(e)
+    // The tool has run or been refused, so its permission no longer waits on anyone.
+    if (turn.permission !== '' && turn.permission === `Waiting for your OK: ${stepOf(e)}`) {
+      turn.permission = ''
+      await update($, waiting, () => '')
+    }
+
+    return result
   })
 
   on('turn.complete', async ($, e, next) => {

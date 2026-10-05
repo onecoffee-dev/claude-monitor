@@ -960,6 +960,17 @@ test('an answer that closes on go or yes/no opens the question dialog, and Your 
   on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
   on('tool.check', () => ({ decision: 'ask' }))
   on('ui.render', () => ({ type: 'Text', children: ['the engine draws its own band'] }))
+  on('classic.PermissionRequest', () => ({}))
+  // As in the engine, the permission dialog opens inside the call, after Monitor's tool.call hook began.
+  const push = { command: 'git push', description: 'Push the branch' }
+  const hookBase = { session_id: 's1', transcript_path: '/tmp/s1.jsonl', cwd: '/elsewhere' }
+  let waitDuringCall: string | undefined
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await $.classic.PermissionRequest({ ...hookBase, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: push })
+    waitDuringCall = await yourMove()
+
+    return { result: { stdout: '', stderr: '', interrupted: false }, isError: false }
+  })
   on('tool.call', { tool: 'AskUserQuestion' }, async (_, e) => {
     const first = e.questions[0]
     asked.push({ question: first?.question ?? '', options: (first?.options ?? []).map(option => option.label) })
@@ -1013,8 +1024,13 @@ test('an answer that closes on go or yes/no opens the question dialog, and Your 
   await complete('Shall I merge it?')
   expect(asked).toHaveLength(3)
 
-  await $.tool.check({ tool: 'Bash', input: { command: 'git push', description: 'Push the branch' }, tool_use_id: 'use-1' })
-  expect(await yourMove()).toBe('Waiting for your OK: Push the branch')
+  // An "ask" goes to the mode's decider, which in auto mode is a classifier, not the person: nothing waits yet.
+  await $.tool.check({ tool: 'Bash', input: push, tool_use_id: 'use-1' })
+  expect(await yourMove()).toBeUndefined()
+  // The permission dialog waits on the person until the tool has run.
+  await $.tool.call({ tool: 'Bash', ...push })
+  expect(waitDuringCall).toBe('Waiting for your OK: Push the branch')
+  expect(await yourMove()).toBeUndefined()
 })
 
 test('with Monitor off, an answer that closes on yes/no opens no dialog', async ($, on) => {
