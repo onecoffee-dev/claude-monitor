@@ -1427,6 +1427,8 @@ export const register: Register = (on, options) => {
               mark(chromeMark(band.chrome)),
               band.chrome === 'none' ? (
                 <Text dimColor>No Chrome</Text>
+              ) : band.chrome === 'idle' ? (
+                <Text dimColor>{`Slot ${band.chromeSlot ?? 0} · not started`}</Text>
               ) : (
                 action(
                   'band-chrome',
@@ -1585,7 +1587,8 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (!(await isOn($))) return next(e)
-    const { Box, Button, Link, Markdown, Svg, Text } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Button, Link, Markdown, Text } = elements
     const view = await read($, graph)
     const now = await read($, minute)
     const agentList = await read($, agents)
@@ -1605,13 +1608,15 @@ export const register: Register = (on, options) => {
     // The desktop draws a pill as one SVG; the terminal keeps a tinted text label.
     const pill = (shown: { label: string; kind: PillKind; icon: PillIcon; terminal?: string; alt?: string; isBold?: boolean }) => {
       const { style, hue } = PILL_KINDS[shown.kind]
-      if (e.surface === 'terminal') {
+      // The terminal has no Svg element, so it keeps the tinted text label.
+      if (e.surface === 'terminal' || !('Svg' in elements)) {
         return (
           <Text backgroundColor={style.backgroundColor} color={style.color} bold={shown.isBold === true}>
             {` ${shown.terminal ?? shown.label} `}
           </Text>
         )
       }
+      const { Svg } = elements
       const piece = pillMark(shown.label, hue, shown.icon, shown.alt)
 
       return <Svg source={piece.svg} alt={piece.alt} width={piece.width} height={piece.height} />

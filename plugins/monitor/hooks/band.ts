@@ -11,8 +11,10 @@ export type Band = {
   yourMove: { reason: string; more: number } | null
   progress: { done: number; open: number; failed: number; percent: number } | null
   agentsRunning: number
-  chrome: 'live' | 'down' | 'none'
+  // `idle`: the session holds a slot, but no Chrome runs for it yet.
+  chrome: 'live' | 'down' | 'idle' | 'none'
   chromePid: number | null
+  chromeSlot: number | null
   issue: { identifier: string; url: string; state: string } | null
   pullRequest: { number: number; url: string } | null
 }
@@ -34,7 +36,7 @@ export const HUE = {
 
 const BAND_HUES: Record<BandStatus, string> = { running: HUE.running, done: HUE.done, idle: HUE.idle }
 
-const CHROME_HUES: Record<Band['chrome'], string> = { live: HUE.done, down: HUE.failed, none: HUE.idle }
+const CHROME_HUES: Record<Band['chrome'], string> = { live: HUE.done, down: HUE.failed, idle: HUE.idle, none: HUE.idle }
 
 const LABELS: Record<BandStatus, string> = { running: 'Now', done: 'Done', idle: 'Idle' }
 
@@ -171,8 +173,16 @@ export const bandOf = (
           },
     progress: countsOf(view?.tasks ?? []),
     agentsRunning,
-    chrome: browser === null || browser.own === null ? 'none' : browser.isReachable ? 'live' : 'down',
+    chrome:
+      browser === null || browser.own === null
+        ? 'none'
+        : browser.isReachable
+          ? 'live'
+          : browser.chromePid === null
+            ? 'idle'
+            : 'down',
     chromePid: browser?.chromePid ?? null,
+    chromeSlot: browser?.own?.slot ?? null,
     issue: info?.issue ? { identifier: info.issue.identifier, url: info.issue.url, state: info.issue.state } : null,
     pullRequest: info?.pullRequest ? { number: info.pullRequest.number, url: info.pullRequest.url } : null,
   }
@@ -425,7 +435,7 @@ export const chromeMark = (chrome: Band['chrome']): BandMark => {
     svg: wrap(D.icon, icon(0, ICONS.globe(shade(CHROME_HUES[chrome], -0.15)))),
     width: D.icon,
     height: D.height,
-    alt: `Chrome ${chrome === 'live' ? 'live' : chrome === 'down' ? 'not answering' : 'not linked'}`,
+    alt: `Chrome ${{ live: 'live', down: 'not answering', idle: 'not started', none: 'not linked' }[chrome]}`,
     glyphs: [{ text: '🌐' }, { text: '●', color: CHROME_HUES[chrome] }],
   }
 }

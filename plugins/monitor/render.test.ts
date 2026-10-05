@@ -1117,3 +1117,48 @@ test('a PR shows in the band right after gh pr create, and the session keeps it 
   await $.tool.call({ tool: 'Read', file_path: '/work/app/README.md' })
   expect(await shownPullRequest()).toBeUndefined()
 })
+
+test('a Chrome slot the session holds with no Chrome running yet reads not started, not as a failure', ON, async ($, on) => {
+  const LOCKS = '/home/me/.cache/acme/browser-slots'
+  const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} }
+  let isChromeRunning = false
+  const run = (exitCode: number, stdout: string) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+  on('fs.exists', () => NO_FILE)
+  on('session.cwd', () => ({ value: '/work/gg' }))
+  on('session.root', () => ({ value: '/work/gg' }))
+  on('env.get', () => ({ value: '/home/me' }))
+  on('clock.now', () => ({ value: NOW }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('agent.list', () => ({ value: [] }))
+  // The session's Chrome helper holds slot 1; Chrome itself starts on the helper's first use.
+  on('process.run', (_, e) => {
+    const command = e.argv.join(' ')
+    if (e.argv[0] === 'readlink') return isChromeRunning ? run(0, 'Mac.lan-4242\n') : run(1, '')
+    if (command === 'sh -c echo $PPID' || command === 'ps -o ppid= -p 41') return run(0, '6146\n')
+    return run(1, '')
+  })
+  on('fs.list', (_, e) => ({
+    value: e.path === LOCKS ? [{ name: 'chrome-profile-app-slot-1.lock', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] : [],
+  }))
+  on('fs.read', () => ({ value: JSON.stringify({ pid: 41, worktree: '/main/checkout', claimedAt: GRAPH.lastEventAt }) }))
+  on('http.fetch', () => ({ value: { status: 404, ok: false, headers: {}, text: '' } }))
+  const chromeRow = async () => {
+    const band = await $.ui.mount({ plugin: 'monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+    const texts = [
+      ...(await band.findAll({ type: 'Text' })).map(text => text.text),
+      ...(await band.findAll({ type: 'Button' })).map(button => button.text),
+    ].filter(text => /Slot|answering|Chrome/.test(text))
+    const alt = (await band.findAll({ type: 'Svg' })).map(svg => String(svg.props.alt)).find(text => text.startsWith('Chrome'))
+    await band.unmount()
+
+    return { texts, alt }
+  }
+
+  await $.command.run({ command: 'monitor', args: '', ...COMMAND })
+  expect(await chromeRow()).toEqual({ texts: ['Slot 1 · not started'], alt: 'Chrome not started' })
+
+  // A Chrome that runs but does not answer is still a failure.
+  isChromeRunning = true
+  await $.command.run({ command: 'monitor', args: '', ...COMMAND })
+  expect(await chromeRow()).toEqual({ texts: ['Not answering'], alt: 'Chrome not answering' })
+})
