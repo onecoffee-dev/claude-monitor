@@ -692,6 +692,9 @@ test('with a PR stack, the band names the next step and links to that PR', ON, a
   expect(pills).toContain('1 thread needs you')
   expect(pills).toContain('needs approval')
   expect(rows.join(' ')).not.toContain('next')
+  // A thread waiting on the person shows under its PR: the last comment's first line and a link to it.
+  expect(rows[1]).toContain('“Valid in part. 4bf3ba8aef adds two sections.”')
+  expect((await pane.find({ type: 'Link', text: /^↗$/ }))?.props.href).toBe('https://github.com/acme/app/pull/1#discussion_me')
   await pane.unmount()
 
   // The terminal keeps its text pills.

@@ -1736,6 +1736,21 @@ export const register: Register = (on, options) => {
                     <Button key={`fix-${row.number}`} label="Fix" onPress={() => void fixPullRequest($, row.number)} />
                   )}
                 </Box>
+                {row.threadsNeedingYou.map(thread => (
+                  <Box key={`thread-${thread.url}`} columnGap={1} alignItems="flex-start">
+                    <Box flexShrink={0}>
+                      <Text>🙋</Text>
+                    </Box>
+                    <Box flexShrink={1}>
+                      <Text color={MUTED} wrap={wrap}>{`“${thread.quote}”`}</Text>
+                    </Box>
+                    {thread.url !== '' && (
+                      <Box flexShrink={0}>
+                        <Link href={thread.url} label="↗" />
+                      </Box>
+                    )}
+                  </Box>
+                ))}
               </Box>
             </Box>
           )
