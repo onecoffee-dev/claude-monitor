@@ -183,8 +183,8 @@ const STYLE =
   ':root{color-scheme:light dark;background:transparent}' +
   'text{font-family:Inter,"SF Pro Text",system-ui,-apple-system,"Segoe UI",sans-serif;font-weight:600;' +
   'font-feature-settings:"tnum","cv05"}' +
-  '.track{fill:var(--h);fill-opacity:.22}.ink{fill:var(--l)}' +
-  '@media (prefers-color-scheme:dark){.ink{fill:var(--d)}}' +
+  '.track{fill:var(--h);fill-opacity:.22}.ink{fill:var(--l)}.line{stroke:var(--l)}' +
+  '@media (prefers-color-scheme:dark){.ink{fill:var(--d)}.line{stroke:var(--d)}}' +
   '</style>' +
   '<defs><linearGradient id="shine" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/>' +
   '<stop offset=".5" stop-color="#fff" stop-opacity=".8"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>' +
@@ -336,6 +336,48 @@ const iconMark = (body: (hue: string) => string, hue: string, glyph: string, alt
 })
 
 export const agentsMark = () => iconMark(ICONS.agent, HUE.agents, '◆', 'Subagents')
+
+// A pill: a rounded tint of its hue, a thin outline, an icon and the label, one height for every pill.
+const PILL = { height: 20, size: 11.5, padX: 7, icon: 9, gap: 4, radius: 6 }
+
+const PILL_ICONS = {
+  check: '<path d="M1.6 5.4 4 7.8 8.6 2.6" fill="none" class="line" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+  cross: '<path d="M2.4 2.4 7.6 7.6M7.6 2.4 2.4 7.6" fill="none" class="line" stroke-width="1.6" stroke-linecap="round"/>',
+  clock:
+    '<circle cx="5" cy="5" r="4" fill="none" class="line" stroke-width="1.3"/>' +
+    '<path d="M5 2.8V5l1.6 1.2" fill="none" class="line" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>',
+  dot: '<circle cx="5" cy="5" r="2.6" class="ink"/>',
+  arrow:
+    '<path d="M8.6 5H1.8M4.6 2 1.6 5l3 3" fill="none" class="line" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
+  person:
+    '<circle cx="5" cy="3.2" r="2" fill="none" class="line" stroke-width="1.3"/>' +
+    '<path d="M1.4 9.2c.6-2 2-3 3.6-3s3 1 3.6 3" fill="none" class="line" stroke-width="1.3" stroke-linecap="round"/>',
+}
+
+export type PillIcon = keyof typeof PILL_ICONS
+
+export const pillMark = (label: string, hue: string, icon: PillIcon, alt = label): BandMark => {
+  const textX = PILL.padX + PILL.icon + PILL.gap
+  // The width table runs a little short on longer labels in this weight, so the label gets 5% more room.
+  const width = Math.ceil(textX + textWidth(label) * (PILL.size / D.size) * 1.05 + PILL.padX)
+  const top = (D.height - PILL.height) / 2
+  const ink = `--l:${shade(hue, -0.38)};--d:${shade(hue, 0.3)}`
+
+  return {
+    svg: wrap(
+      width,
+      `<rect x=".5" y="${top + 0.5}" width="${width - 1}" height="${PILL.height - 1}" rx="${PILL.radius}" ` +
+        `fill="${hue}" fill-opacity=".14" stroke="${hue}" stroke-opacity=".42"/>` +
+        `<g transform="translate(${PILL.padX} ${(D.height - PILL.icon) / 2}) scale(${PILL.icon / 10})" style="${ink}">` +
+        `${PILL_ICONS[icon]}</g>` +
+        `<text x="${textX}" y="${D.baseline - 0.5}" font-size="${PILL.size}" class="ink" style="${ink}">${escapeXml(label)}</text>`,
+    ),
+    width,
+    height: D.height,
+    alt,
+    glyphs: [{ text: ` ${label} `, color: hue }],
+  }
+}
 
 export const pullRequestMark = (isLinked: boolean) =>
   iconMark(ICONS.pullRequest, isLinked ? HUE.done : HUE.idle, '⑂', isLinked ? 'Pull requests' : 'No pull request')

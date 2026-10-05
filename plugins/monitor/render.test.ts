@@ -98,7 +98,12 @@ test('the plan tool draws the Plan graph and marks the current task, docked and 
 
     // One node per task of the run, in order; the rail draws as text on the terminal only.
     expect(await node('grill')).toMatch(/^✓│?Grill the design/)
-    expect(await node('p1')).toMatch(/^●│?Phase 1: move every screen to the tokens now 1\/4/)
+    // The task where the session is carries the now pill: text on the terminal, an SVG on the desktop.
+    if (surface === 'terminal') expect(await node('p1')).toMatch(/^●│?Phase 1: move every screen to the tokens now 1\/4/)
+    else {
+      expect(await node('p1')).toMatch(/^●Phase 1: move every screen to the tokens1\/4/)
+      expect((await ui.findAll({ type: 'Svg' })).map(svg => svg.props.alt)).toContain('now')
+    }
     expect(await node('p2')).toMatch(/^○Phase 2: QA and rollout/)
     expect(await ui.find({ text: /^moving grid cells to tokens: 14 of 22 done$/ })).toBeDefined()
     // The current task's steps, with why one waits and why one failed; other tasks' steps stay folded.
@@ -678,12 +683,22 @@ test('with a PR stack, the band names the next step and links to that PR', ON, a
   expect((await pane.find({ key: 'section-toggle-stack' }))?.props.label).toBe('▾ PR stack')
   expect(await pane.find({ text: /^5 open · merge top to bottom$/ })).toBeDefined()
   const rows = await Promise.all([101, 102, 103, 104, 105].map(async number => (await pane.find({ key: `stack-row-${number}` }))?.text ?? ''))
-  expect(rows[0]).toContain('← next')
   expect(rows[0]).toContain('Step 101')
   expect(rows[0]).not.toContain('GG-101')
-  expect(rows[2]).toContain('this session')
-  expect(rows[1]).toContain('1 thread needs you')
+  // On the desktop each pill is one SVG, its label the alt text.
+  const pills = (await pane.findAll({ type: 'Svg' })).map(svg => String(svg.props.alt))
+  expect(pills.filter(alt => alt === 'next')).toHaveLength(1)
+  expect(pills.filter(alt => alt === 'this session')).toHaveLength(1)
+  expect(pills).toContain('1 thread needs you')
+  expect(pills).toContain('needs approval')
+  expect(rows.join(' ')).not.toContain('next')
   await pane.unmount()
+
+  // The terminal keeps its text pills.
+  const terminalPane = await $.ui.mount({ plugin: 'monitor', surface: 'terminal', component: 'Pane', requestId: 'monitor', props: PANE(DOCKED) })
+  expect((await terminalPane.find({ key: 'stack-row-101' }))?.text).toContain('← next')
+  expect((await terminalPane.find({ key: 'stack-row-103' }))?.text).toContain('this session')
+  await terminalPane.unmount()
 })
 
 test('the Prompts card lists the person\'s prompts, oldest first, from the terminal and the desktop app', ON, async ($, on) => {

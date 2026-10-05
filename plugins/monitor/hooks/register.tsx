@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { BandMark } from './band'
+import type { BandMark, PillIcon } from './band'
 import { askOf } from './asks'
 import {
   agentsMark,
@@ -14,6 +14,7 @@ import {
   meterMark,
   moveMark,
   nextMark,
+  pillMark,
   progressMark,
   pullRequestMark,
   statusMark,
@@ -191,20 +192,32 @@ const PILLS: Record<MonitorStatus | 'count', Pill> = {
   count: { backgroundColor: '#3a3a3a', color: '#e6e6e6' },
 }
 
-const CI_PILLS: Record<Exclude<MonitorStackPullRequest['ci'], 'none'>, Pill> = {
-  passing: PILLS.completed,
-  failing: PILLS.failed,
-  pending: PILLS.pending,
+type PillKind = 'done' | 'failed' | 'waiting' | 'idle' | 'running' | 'neutral'
+
+// Each kind: the terminal's tinted text pill, and the hue of the desktop's SVG pill.
+const PILL_KINDS: Record<PillKind, { style: Pill; hue: string }> = {
+  done: { style: PILLS.completed, hue: HUE.done },
+  failed: { style: PILLS.failed, hue: HUE.failed },
+  waiting: { style: PILLS.blocked, hue: HUE.waiting },
+  idle: { style: PILLS.pending, hue: HUE.idle },
+  running: { style: PILLS.running, hue: HUE.running },
+  neutral: { style: PILLS.count, hue: HUE.idle },
 }
 
-const blockerPillOf = (blocker: string) =>
+const CI_PILLS: Record<Exclude<MonitorStackPullRequest['ci'], 'none'>, { kind: PillKind; icon: PillIcon }> = {
+  passing: { kind: 'done', icon: 'check' },
+  failing: { kind: 'failed', icon: 'cross' },
+  pending: { kind: 'idle', icon: 'clock' },
+}
+
+const blockerPillOf = (blocker: string): { kind: PillKind; icon: PillIcon } =>
   blocker === 'ready to merge'
-    ? PILLS.completed
+    ? { kind: 'done', icon: 'check' }
     : blocker === 'CI failing' || blocker === 'conflict with base' || blocker === 'changes requested'
-      ? PILLS.failed
+      ? { kind: 'failed', icon: 'cross' }
       : blocker === 'draft' || blocker === 'CI running'
-        ? PILLS.pending
-        : PILLS.blocked
+        ? { kind: 'idle', icon: 'clock' }
+        : { kind: 'waiting', icon: 'dot' }
 
 const shortTitleOf = (title: string) => title.replace(/\s*\([A-Z][A-Z0-9]*-\d+\)\s*$/i, '')
 
@@ -1532,7 +1545,7 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (!(await isOn($))) return next(e)
-    const { Box, Button, Link, Markdown, Text } = $.ui.resolve(e)
+    const { Box, Button, Link, Markdown, Svg, Text } = $.ui.resolve(e)
     const view = await read($, graph)
     const now = await read($, minute)
     const agentList = await read($, agents)
@@ -1549,11 +1562,20 @@ export const register: Register = (on, options) => {
     const wrap = isDocked ? 'wrap' : 'truncate-end'
     const space = isDocked && e.surface !== 'terminal' ? 0.5 : 0
 
-    const pill = (text: string, style: Pill, isBold = false) => (
-      <Text backgroundColor={style.backgroundColor} color={style.color} bold={isBold}>
-        {` ${text} `}
-      </Text>
-    )
+    // The desktop draws a pill as one SVG; the terminal keeps a tinted text label.
+    const pill = (shown: { label: string; kind: PillKind; icon: PillIcon; terminal?: string; alt?: string; isBold?: boolean }) => {
+      const { style, hue } = PILL_KINDS[shown.kind]
+      if (e.surface === 'terminal') {
+        return (
+          <Text backgroundColor={style.backgroundColor} color={style.color} bold={shown.isBold === true}>
+            {` ${shown.terminal ?? shown.label} `}
+          </Text>
+        )
+      }
+      const piece = pillMark(shown.label, hue, shown.icon, shown.alt)
+
+      return <Svg source={piece.svg} alt={piece.alt} width={piece.width} height={piece.height} />
+    }
 
     const heading = (text: string) => <Markdown text={`## ${text}`} />
 
@@ -1612,7 +1634,7 @@ export const register: Register = (on, options) => {
                         {task.title}
                       </Text>
                     </Box>
-                    {isHere && <Box flexShrink={0}>{pill('now', PILLS.running, true)}</Box>}
+                    {isHere && <Box flexShrink={0}>{pill({ label: 'now', kind: 'running', icon: 'dot', isBold: true })}</Box>}
                     {task.children.length > 0 && (
                       <Box flexShrink={0}>
                         <Text color={MUTED}>{`${task.progress.completed}/${task.progress.total}`}</Text>
@@ -1705,10 +1727,11 @@ export const register: Register = (on, options) => {
                   </Text>
                 </Box>
                 <Box columnGap={1} flexWrap="wrap">
-                  {row.ci !== 'none' && pill(`${CHECK_GLYPHS[row.ci]} CI`, CI_PILLS[row.ci])}
-                  {pill(row.blocker, blockerPillOf(row.blocker), isNext)}
-                  {isNext && pill('← next', PILLS.running)}
-                  {row.isSession && pill('this session', PILLS.count)}
+                  {row.ci !== 'none' &&
+                    pill({ label: 'CI', ...CI_PILLS[row.ci], terminal: `${CHECK_GLYPHS[row.ci]} CI`, alt: `CI ${row.ci}` })}
+                  {pill({ label: row.blocker, ...blockerPillOf(row.blocker), isBold: isNext })}
+                  {isNext && pill({ label: 'next', kind: 'running', icon: 'arrow', terminal: '← next' })}
+                  {row.isSession && pill({ label: 'this session', kind: 'neutral', icon: 'person' })}
                   {row.isFixable && settings.fixCommand !== '' && (
                     <Button key={`fix-${row.number}`} label="Fix" onPress={() => void fixPullRequest($, row.number)} />
                   )}
