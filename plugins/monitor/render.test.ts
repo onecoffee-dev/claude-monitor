@@ -337,7 +337,7 @@ test('the band names the running task and the pane draws its plan, on the deskto
   await terminal.unmount()
 })
 
-test('with nothing running, the band shows the last finished task and what waits on you', ON, async ($, on) => {
+test('with nothing running, the band shows the last finished task, and no Your move line', ON, async ($, on) => {
   const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} }
   const clock = { at: NOW }
   on('fs.exists', () => NO_FILE)
@@ -348,22 +348,13 @@ test('with nothing running, the band shows the last finished task and what waits
   await saveIdlePlan($, clock)
   await $.command.run({ command: 'monitor', args: '', ...COMMAND })
 
-  const desktopBand = await $.ui.mount({ plugin: 'monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND })
-  const labelWidths = (await desktopBand.findAll({ type: 'Svg' })).filter(svg => /^(Done|Your move)$/.test(String(svg.props.alt))).map(svg => svg.props.width)
-  expect(labelWidths.length).toBe(2)
-  expect(labelWidths[0]).toBe(labelWidths[1])
-  await desktopBand.unmount()
-  const terminalBand = await $.ui.mount({ plugin: 'monitor', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await terminalBand.find({ type: 'Text', text: /^Done {5}$/ })).toBeDefined()
-  expect(await terminalBand.find({ type: 'Text', text: /^Your move$/ })).toBeDefined()
-  await terminalBand.unmount()
-
   for (const surface of ['terminal', 'desktop'] as const) {
     const band = await $.ui.mount({ plugin: 'monitor', surface, component: 'AbovePrompt', props: BAND })
     expect(await band.find({ text: /^DEMO-104 dashboard and navigation$/ })).toBeDefined()
     expect(await band.find({ text: /^· 14h \d+m ago$/ })).toBeDefined()
-    expect(await band.find({ text: /^waits on design: the dark chart palette is not signed off yet$/ })).toBeDefined()
-    expect(await band.find({ text: /waiting$/ })).toBeUndefined()
+    // A task blocked on the person shows in the Plan card, not as a Your move line.
+    expect(await band.find({ text: /waits on design|Your move/ })).toBeUndefined()
+    expect((await band.findAll({ type: 'Svg' })).map(svg => String(svg.props.alt))).not.toContain('Your move')
     await band.unmount()
   }
 })
@@ -431,7 +422,8 @@ test('when a turn ends, Sonnet writes the band lines from the reply and the late
 
   const band = await $.ui.mount({ plugin: 'monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ text: /^Shipped the Sonnet band lines$/ })).toBeDefined()
-  expect(await band.find({ text: /^Click ◆ 1 running in the band$/ })).toBeDefined()
+  // The band has no Your move line, so a YOUR MOVE sentence is not drawn.
+  expect(await band.find({ text: /^Click ◆ 1 running in the band$/ })).toBeUndefined()
   expect(await band.find({ text: /^DEMO-104 dashboard and navigation$/ })).toBeUndefined()
   await band.unmount()
 })
@@ -972,7 +964,7 @@ test('with alwaysOn, a session opens the Monitor pane as it starts, before any p
   expect(opened).toEqual(['monitor'])
 })
 
-test('an answer that closes on go or yes/no opens the question dialog, and Your move names what waits on you', ON, async ($, on) => {
+test('an answer that closes on go or yes/no opens the question dialog, and the band does not repeat it', ON, async ($, on) => {
   const BAND = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} }
   const asked: { question: string; options: string[] }[] = []
   const submitted: { text: string; asUser: boolean }[] = []
@@ -988,17 +980,6 @@ test('an answer that closes on go or yes/no opens the question dialog, and Your 
   on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
   on('tool.check', () => ({ decision: 'ask' }))
   on('ui.render', () => ({ type: 'Text', children: ['the engine draws its own band'] }))
-  on('classic.PermissionRequest', () => ({}))
-  // As in the engine, the permission dialog opens inside the call, after Monitor's tool.call hook began.
-  const push = { command: 'git push', description: 'Push the branch' }
-  const hookBase = { session_id: 's1', transcript_path: '/tmp/s1.jsonl', cwd: '/elsewhere' }
-  let waitDuringCall: string | undefined
-  on('tool.call', { tool: 'Bash' }, async () => {
-    await $.classic.PermissionRequest({ ...hookBase, hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: push })
-    waitDuringCall = await yourMove()
-
-    return { result: { stdout: '', stderr: '', interrupted: false }, isError: false }
-  })
   on('tool.call', { tool: 'AskUserQuestion' }, async (_, e) => {
     const first = e.questions[0]
     asked.push({ question: first?.question ?? '', options: (first?.options ?? []).map(option => option.label) })
@@ -1021,21 +1002,21 @@ test('an answer that closes on go or yes/no opens the question dialog, and Your 
     pickNow(label)
     await clock.settle()
   }
-  const yourMove = async () => {
+  const bandRepeatsTheQuestion = async () => {
     const band = await $.ui.mount({ plugin: 'monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND })
-    const line = (await band.find({ text: /^(Question for you|Waiting for your OK): / }))?.text
+    const line = await band.find({ text: /Question for you|Should I push it/ })
     await band.unmount()
 
-    return line
+    return line !== undefined
   }
 
   await $.command.run({ command: 'monitor', args: '', ...COMMAND })
   await complete('The branch is ready.\n\nShould I push it?')
   expect(asked).toEqual([{ question: 'Should I push it?', options: ['yes', 'no'] }])
-  expect(await yourMove()).toBe('Question for you: Should I push it?')
+  // The dialog is on screen already; the band does not repeat it.
+  expect(await bandRepeatsTheQuestion()).toBe(false)
   await pick('yes')
   expect(submitted).toEqual([{ text: 'yes', asUser: true }])
-  expect(await yourMove()).toBeUndefined()
 
   // One named reply gets a way out that sends nothing; a lettered choice puts the recommended option first.
   await complete('Next: reply **"go"** to start the migration.')
@@ -1051,14 +1032,6 @@ test('an answer that closes on go or yes/no opens the question dialog, and Your 
   draft = 'actually, wait'
   await complete('Shall I merge it?')
   expect(asked).toHaveLength(3)
-
-  // An "ask" goes to the mode's decider, which in auto mode is a classifier, not the person: nothing waits yet.
-  await $.tool.check({ tool: 'Bash', input: push, tool_use_id: 'use-1' })
-  expect(await yourMove()).toBeUndefined()
-  // The permission dialog waits on the person until the tool has run.
-  await $.tool.call({ tool: 'Bash', ...push })
-  expect(waitDuringCall).toBe('Waiting for your OK: Push the branch')
-  expect(await yourMove()).toBeUndefined()
 })
 
 test('with Monitor off, an answer that closes on yes/no opens no dialog', async ($, on) => {

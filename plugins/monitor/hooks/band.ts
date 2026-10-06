@@ -8,7 +8,6 @@ export type Band = {
   headline: string
   activity: string | null
   finishedAt: string | null
-  yourMove: { reason: string; more: number } | null
   progress: { done: number; open: number; failed: number; percent: number } | null
   agentsRunning: number
   // `idle`: the session holds a slot, but no Chrome runs for it yet.
@@ -87,7 +86,6 @@ const countsOf = (tasks: readonly MonitorTask[]): Band['progress'] => {
 export const isEmpty = (band: Band) =>
   band.status === 'idle' &&
   band.progress === null &&
-  band.yourMove === null &&
   band.agentsRunning === 0 &&
   band.chrome === 'none' &&
   band.issue === null &&
@@ -118,7 +116,6 @@ export const withLive = (band: Band, step: string | null, summary: MonitorSummar
     headline: summary.now,
     activity: null,
     finishedAt: new Date(summary.at).toISOString(),
-    yourMove: summary.yourMove === null ? band.yourMove : { reason: summary.yourMove, more: 0 },
   }
 }
 
@@ -144,7 +141,6 @@ export const bandOf = (
   const agentsRunning = agents.filter(agent => agent.status === 'running').length
 
   const current = view?.current[0]
-  const waiting = [...(view?.blockers ?? [])].sort((left, right) => Date.parse(right.since) - Date.parse(left.since))
   const finished = lastFinished(view?.tasks ?? [])
   const status: BandStatus = current !== undefined ? 'running' : finished !== undefined ? 'done' : 'idle'
   const upNext = view?.upNext[0]?.taskTitle
@@ -156,7 +152,6 @@ export const bandOf = (
         : upNext === undefined
           ? 'nothing running'
           : `up next: ${upNext}`
-  const firstWait = waiting[0]
 
   return {
     status,
@@ -164,13 +159,6 @@ export const bandOf = (
     headline,
     activity: status === 'running' ? (current?.activity ?? null) : null,
     finishedAt: status === 'done' ? (finished?.completedAt ?? null) : null,
-    yourMove:
-      firstWait === undefined
-        ? null
-        : {
-            reason: (firstWait.reason || firstWait.taskTitle).replace(/^waits on you:\s*/i, ''),
-            more: waiting.length - 1,
-          },
     progress: countsOf(view?.tasks ?? []),
     agentsRunning,
     chrome:
@@ -227,7 +215,7 @@ const ICONS = {
 const icon = (x: number, body: string) =>
   `<g transform="translate(${x} ${D.iconTop}) scale(${D.icon / 10})">${body}</g>`
 
-const LINE_LABELS = ['Now', 'Done', 'Idle', 'Your move', 'Next']
+const LINE_LABELS = ['Now', 'Done', 'Idle', 'Next']
 const LINE_LABEL_CHARACTERS = Math.max(...LINE_LABELS.map(label => label.length))
 
 // Every line label takes the widest one's room, so the sentences after them start at one column.
@@ -259,8 +247,6 @@ const labelMark = (label: string, hue: string, isPulsing: boolean): BandMark => 
 }
 
 export const statusMark = (band: Band): BandMark => labelMark(band.label, BAND_HUES[band.status], band.status === 'running')
-
-export const moveMark = () => labelMark('Your move', HUE.waiting, true)
 
 export const nextMark = () => labelMark('Next', HUE.running, false)
 

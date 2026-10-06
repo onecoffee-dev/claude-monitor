@@ -40,7 +40,7 @@ export type MonitorAgent = {
 
 export type MonitorPrompt = { id: string; text: string }
 
-export type MonitorSummary = { now: string; yourMove: string | null; isWorking: boolean; at: number }
+export type MonitorSummary = { now: string; isWorking: boolean; at: number }
 
 export type MonitorIssueInfo = { identifier: string; title: string; url: string; state: string; labels: string[] }
 
@@ -134,8 +134,6 @@ declare module 'claude-code' {
       usage: MonitorUsage | null
       cacheShare: number | null
       active: boolean
-      /** What Claude waits on the person for, as one Your move line; "" when nothing. */
-      waiting: string
     }
   }
 }
