@@ -1778,7 +1778,7 @@ export const register: Register = (on, options) => {
                   {isNext && pill({ label: 'next', kind: 'running', icon: 'arrow', terminal: '← next' })}
                   {row.isSession && pill({ label: 'this session', kind: 'neutral', icon: 'person' })}
                   {row.isFixable && settings.fixCommand !== '' && (
-                    <Button key={`fix-${row.number}`} label="Fix" onPress={() => void fixPullRequest($, row.number)} />
+                    <Button key={`fix-${row.number}`} variant="primary" label="Fix" onPress={() => void fixPullRequest($, row.number)} />
                   )}
                 </Box>
                 {row.threadsNeedingYou.map(thread => (
