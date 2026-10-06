@@ -687,6 +687,9 @@ const nextActionOf = (row: MonitorStackPullRequest) => {
 const needingYouOf = (chain: readonly MonitorStackPullRequest[]) =>
   chain.reduce((total, row) => total + row.threadsNeedingYou.length, 0)
 
+// A fix button says what a press does: it runs the fix command.
+const fixLabel = () => `▶ Run /${settings.fixCommand}`
+
 const fixPullRequest = async ($: EngineInterface, number: number) => {
   const failure = await $.command
     .run({ command: settings.fixCommand, args: String(number) })
@@ -1494,7 +1497,7 @@ export const register: Register = (on, options) => {
             · {waitingOnYou} thread{waitingOnYou === 1 ? ' needs' : 's need'} you
           </Text>
         ),
-        stackNext.isFixable && settings.fixCommand !== '' && action('band-fix', 'Fix', () => fixPullRequest($, stackNext.number)),
+        stackNext.isFixable && settings.fixCommand !== '' && action('band-fix', fixLabel(), () => fixPullRequest($, stackNext.number)),
       )
 
 
@@ -1773,7 +1776,12 @@ export const register: Register = (on, options) => {
                   {isNext && pill({ label: 'next', kind: 'running', icon: 'arrow', terminal: '← next' })}
                   {row.isSession && pill({ label: 'this session', kind: 'neutral', icon: 'person' })}
                   {row.isFixable && settings.fixCommand !== '' && (
-                    <Button key={`fix-${row.number}`} variant="primary" label="Fix" onPress={() => void fixPullRequest($, row.number)} />
+                    <Button
+                      key={`fix-${row.number}`}
+                      variant="primary"
+                      label={fixLabel()}
+                      onPress={() => void fixPullRequest($, row.number)}
+                    />
                   )}
                 </Box>
                 <Text bold={isNext} wrap={wrap}>

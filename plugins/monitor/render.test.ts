@@ -699,6 +699,8 @@ test('with a PR stack, the band names the next step and links to that PR', ON, a
   expect(rows[1]).toContain('“Valid in part. 4bf3ba8aef adds two sections.”')
   // A fixable PR's Fix button is the primary one, so it stands out from the pills.
   expect((await pane.find({ key: 'fix-103' }))?.props.variant).toBe('primary')
+  // Its label says what a press does: run the fix command.
+  expect((await pane.find({ key: 'fix-103' }))?.props.label).toBe('▶ Run /fix-pr')
   expect((await pane.find({ type: 'Link', text: /^↗$/ }))?.props.href).toBe('https://github.com/acme/app/pull/1#discussion_me')
   await pane.unmount()
 
