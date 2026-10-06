@@ -1833,7 +1833,7 @@ export const register: Register = (on, options) => {
           paddingX={1}
           paddingY={e.surface === 'terminal' ? 0 : 0.5}
         >
-          <Box columnGap={1} alignItems="center">
+          <Box columnGap={1} alignItems="flex-start">
             <Box flexShrink={0}>
               <Button
                 key={`section-toggle-${id}`}
@@ -1843,7 +1843,7 @@ export const register: Register = (on, options) => {
               />
             </Box>
             <Box flexShrink={1}>
-              <Text color={needsYou ? COLORS.blocked : MUTED} wrap="truncate-end">
+              <Text color={needsYou ? COLORS.blocked : MUTED} wrap="wrap">
                 {summaryText}
               </Text>
             </Box>

@@ -813,7 +813,9 @@ test('a collapsed section shows its summary, and one that waits on you opens its
   const ui = await $.ui.mount({ plugin: 'monitor', surface: 'desktop', component: 'Pane', requestId: 'monitor', props: PANE(DOCKED) })
   // The run has a blocked and a failed task, so Plan opens by itself.
   expect((await ui.find({ key: 'section-toggle-plan' }))?.props.label).toBe('▾ Plan')
-  expect(await ui.find({ text: /^6\/11 · Now: DEMO-105 media-plan editor grid · 1 waiting on you$/ })).toBeDefined()
+  const summary = await ui.find({ type: 'Text', text: /^6\/11 · Now: DEMO-105 media-plan editor grid · 1 waiting on you$/ })
+  // A long summary breaks onto more lines; the desktop pane does not cut it cleanly at the card's edge.
+  expect(summary?.props.wrap).toBe('wrap')
   expect(await ui.find({ text: /DEMO-105 media-plan editor grid/, type: 'Text' })).toBeDefined()
   // Nothing waits in the prompts list: its header and summary alone.
   expect((await ui.find({ key: 'section-toggle-prompts' }))?.props.label).toBe('▸ Prompts')
