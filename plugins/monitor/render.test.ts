@@ -704,7 +704,8 @@ test('with a PR stack, the band names the next step and links to that PR', ON, a
 
   // The terminal keeps its text pills.
   const terminalPane = await $.ui.mount({ plugin: 'monitor', surface: 'terminal', component: 'Pane', requestId: 'monitor', props: PANE(DOCKED) })
-  expect((await terminalPane.find({ key: 'stack-row-101' }))?.text).toContain('← next')
+  // The pills sit next to the PR number, the title on the line below.
+  expect((await terminalPane.find({ key: 'stack-row-101' }))?.text).toMatch(/^▶#101 .*← next .*Step 101$/)
   expect((await terminalPane.find({ key: 'stack-row-103' }))?.text).toContain('this session')
   await terminalPane.unmount()
 })

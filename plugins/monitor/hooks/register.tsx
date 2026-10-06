@@ -1765,13 +1765,8 @@ export const register: Register = (on, options) => {
             <Box key={`stack-row-${row.number}`} alignItems="flex-start">
               {gutter(isNext ? '▶' : String(index + 1), isNext ? COLORS.running : MUTED)}
               <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-                <Box columnGap={1} flexWrap="wrap">
+                <Box columnGap={1} flexWrap="wrap" alignItems="center">
                   <Link href={row.url} label={`#${row.number}`} />
-                  <Text bold={isNext} wrap={wrap}>
-                    {shortTitleOf(row.title)}
-                  </Text>
-                </Box>
-                <Box columnGap={1} flexWrap="wrap">
                   {row.ci !== 'none' &&
                     pill({ label: 'CI', ...CI_PILLS[row.ci], terminal: `${CHECK_GLYPHS[row.ci]} CI`, alt: `CI ${row.ci}` })}
                   {pill({ label: row.blocker, ...blockerPillOf(row.blocker), isBold: isNext })}
@@ -1781,6 +1776,9 @@ export const register: Register = (on, options) => {
                     <Button key={`fix-${row.number}`} variant="primary" label="Fix" onPress={() => void fixPullRequest($, row.number)} />
                   )}
                 </Box>
+                <Text bold={isNext} wrap={wrap}>
+                  {shortTitleOf(row.title)}
+                </Text>
                 {row.threadsNeedingYou.map(thread => (
                   <Box key={`thread-${thread.url}`} columnGap={1} alignItems="flex-start">
                     <Box flexShrink={0}>
